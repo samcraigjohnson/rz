@@ -1,0 +1,6 @@
+* RZ json parser and printer
+
+As we encounter items, push them on the stack, peek the stack and validate if the item coming after it is valid. i.e. {] is wrong since you must first have an opening brace.
+
+If its a char push on stack.
+If it is a quote push on stack unless already hit a quote AND last item was not a '\'

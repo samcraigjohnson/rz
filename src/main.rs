@@ -19,8 +19,8 @@ struct Parser {
 enum ParserState {
     StartOfObject,
     EndOfObject,
-    ParsingKey,
-    ParsingValue,
+    ParsingKey { key: String },
+    ParsingValue { key: String, value: String },
 }
 
 impl Parser {
@@ -41,42 +41,46 @@ fn parse_json(input: String) -> json::Document {
         let curr_obj = &mut d.root;
         while p.curr_char < input.chars().count() {
             let c = input.chars().nth(p.curr_char).unwrap();
-            match c {
-                '{' => { // new object created
-                },
-                '}' => { // object ended
-                }
-                ':' => {
-                    p.in_key = false;
-                    p.in_value = true;
-                },
-                '"' => {
-                    if !p.in_key {
 
+            p.state = match p.state {
+                ParserState::ParsingKey { key } => {
+                    match c {
+                        '"' => ParserState::ParsingValue { key: key, value: String::new() },
+                        _ => {
+                            let mut new_key = key.clone();
+                            new_key.push(c);
+                            ParserState::ParsingKey { key: new_key }
+                        },
                     }
-
-                    if p.in_key { // finished the key
-                        p.in_key = false;
-                    } else if p.in_value { // possible done with value
-                        if p.value_has_started() { // make sure its not the start
-                            p.in_value = false;
-                            curr_obj.add(p.curr_key, json::Value::String(p.curr_value));
-                            p.curr_value = String::new();
-                            p.curr_key = String::new();
+                }
+                ParserState::ParsingValue { key, value } => {
+                    match c {
+                        ':' => ParserState::ParsingValue { key, value },
+                        '"' => {
+                            if value.chars().count() > 0 {
+                                curr_obj.add(key, json::Value::String(value));
+                                ParserState::StartOfObject
+                            } else {
+                                ParserState::ParsingValue { key, value }
+                            }
                         }
-                    } else {
-                        p.in_key = true;
-                    }
-                },
-                _ => {
-                    if p.in_key {
-                        p.curr_key.push(c);
-                    } else if p.in_value && (c != ' ' || p.value_has_started()) {
-                        p.curr_value.push(c);
+                        _ => {
+                            let mut new_value = value.clone();
+                            new_value.push(c);
+                            ParserState::ParsingValue { key: key, value: new_value }
+                        }
                     }
                 }
+                ParserState::StartOfObject => {
+                    match c {
+                        '"' => {
+                            ParserState::ParsingKey { key: String::new() }
+                        }
+                        _ => ParserState::StartOfObject
+                    }
+                }
+                ParserState::EndOfObject => ParserState::EndOfObject,
             };
-
             p.curr_char += 1; // advance to next  character
         }
     }

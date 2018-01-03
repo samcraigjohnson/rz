@@ -17,24 +17,23 @@ struct Parser {
 }
 
 enum ParserState {
-    StartOfObject,
-    EndOfObject,
+    Start,
     ParsingKey { key: String },
-    ParsingValue { key: String, value: String },
+    ParsingValue { key: String },
 }
 
 impl Parser {
     fn new() -> Parser {
         Parser {
             curr_char: 0,
-            state: ParserState::StartOfObject,
+            state: ParserState::Start,
         }
     }
 }
 
 // Tokenize input
 // so far only handles double quoted strings as values
-fn parse_json(input: String) -> json::Document {
+fn parse_json<'a>(input: String) -> json::Document {
     let mut p = Parser::new();
     let mut d = json::Document::new();
     {
@@ -45,41 +44,51 @@ fn parse_json(input: String) -> json::Document {
             p.state = match p.state {
                 ParserState::ParsingKey { key } => {
                     match c {
-                        '"' => ParserState::ParsingValue { key: key, value: String::new() },
+                        '"' => ParserState::ParsingValue { key: key },
                         _ => {
-                            let mut new_key = key.clone();
+                            let mut new_key = key;
                             new_key.push(c);
                             ParserState::ParsingKey { key: new_key }
                         },
                     }
                 }
-                ParserState::ParsingValue { key, value } => {
+                ParserState::ParsingValue { key } => {
                     match c {
-                        ':' => ParserState::ParsingValue { key, value },
-                        '"' => {
-                            if value.chars().count() > 0 {
-                                curr_obj.add(key, json::Value::String(value));
-                                ParserState::StartOfObject
-                            } else {
-                                ParserState::ParsingValue { key, value }
+                        ':' => { // Everything past the colon is a value
+                            let mut new_val = String::new();
+                            let mut location = p.curr_char + 1;
+
+                            // TODO(samj) - special handling of nested objects here
+                            while let Some(curr_char) = input.chars().nth(location) {
+                                if curr_char == ',' || curr_char == '}' { break; } // Need to handle array here :D
+
+                                new_val.push(curr_char);
+                                location += 1;
                             }
+
+                            // TODO(samj) - strip quotes and spaces
+                            // TODO(samj) - try to convert to int, float, bool
+                            let mut trimmed = new_val.trim();
+                            if trimmed.chars().nth(0).unwrap() == '"' {
+                                trimmed = trimmed.get(1..trimmed.chars().count() - 1).unwrap();
+                            }
+
+                            curr_obj.add(key, json::Value::String(trimmed.to_string()));
+                            p.curr_char = location;
+                            p.state = ParserState::Start;
+                            continue
                         }
-                        _ => {
-                            let mut new_value = value.clone();
-                            new_value.push(c);
-                            ParserState::ParsingValue { key: key, value: new_value }
-                        }
+                        _ => ParserState::ParsingValue { key }
                     }
                 }
-                ParserState::StartOfObject => {
+                ParserState::Start => {
                     match c {
                         '"' => {
                             ParserState::ParsingKey { key: String::new() }
                         }
-                        _ => ParserState::StartOfObject
+                        _ => ParserState::Start
                     }
                 }
-                ParserState::EndOfObject => ParserState::EndOfObject,
             };
             p.curr_char += 1; // advance to next  character
         }
@@ -94,42 +103,3 @@ fn main() {
     let d = parse_json(json);
     d.print();
 }
-
-// impl fmt::Display for json::Token {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match *self {
-//             json::Token::OpenBrace(c) => write!(f, "{}\n", c.clone()),
-//             json::Token::ClosingBrace(c) => write!(f, "{}\n", c),
-//             json::Token::ArrayStart(c) => write!(f, "{}\n", c),
-//             json::Token::ArrayEnd(c) => write!(f, "{}\n", c),
-//             json::Token::ArraySeperator(c) => write!(f, "{} ", c),
-//             json::Token::Colon(c) => write!(f, "{} ", c),
-//             json::Token::Key(key) => write!(f, "\"{}\"", key),
-//             json::Token::Value(val) => write!(f, "{}", val),
-//             json::Token::Other(c) => write!(f, "{}", c),
-//         }
-//     }
-// }
-
-
-// impl fmt::Display for Value {
-//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-//         match *self {
-//             Value::String(s) => write!(f, "\"{}\"", s),
-//             Value::Bool(b) => write!(f, "{}", b),
-//             Value::Integer(i) => write!(f, "{}", i),
-//         }
-//     }
-// }
-
-// impl json::Token {
-//     fn show(&self) {
-//         match self.val {
-//             '{' => print!("{{\n"),
-//             '}' => print!("\n}}"),
-//             '[' => print!("[\n"),
-//             ']' => print!("\n]"),
-//             _ => print!("{}", self.val)
-//         }
-//     }
-// }

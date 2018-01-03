@@ -49,30 +49,20 @@ impl fmt::Display for Object {
     }
 }
 
-#[derive(Debug)]
-pub enum Token {
-    OpenBrace(char),
-    ClosingBrace(char),
-    Colon(char),
-    Key(String),
-    Value(String),
-    Other(char),
-}
-
 pub enum Value {
     String(String),
-    Bool(bool),
-    Integer(i64),
-    Object(Object),
+    // Bool(bool),
+    // Integer(i64),
+    // Object(Object),
 }
 
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Value::String(ref s) => write!(f, "\"{}\"", s),
-            Value::Bool(ref b) => write!(f, "{}", b),
-            Value::Integer(ref i) => write!(f, "{}", i),
-            Value::Object(ref o) => write!(f, "{}", o),
+            // Value::Bool(ref b) => write!(f, "{}", b),
+            // Value::Integer(ref i) => write!(f, "{}", i),
+            // Value::Object(ref o) => write!(f, "{}", o),
         }
     }
 }

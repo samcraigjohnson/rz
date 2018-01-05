@@ -1,68 +1,95 @@
 use std::collections::HashMap;
+use std::error;
 use std::fmt;
 
+#[derive(Debug)]
+pub struct JsonParseError;
+
+impl error::Error for JsonParseError {
+    fn description(&self) -> &str {
+        "There was an error parsing json"
+    }
+}
+
+impl fmt::Display for JsonParseError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", "Shit!")
+    }
+}
+
 pub struct Document {
-    pub root: Object,
+    pub root: Value
 }
 
 impl Document {
     pub fn new() -> Document {
         Document {
-            root: Object::new(0)
+            root: Value::Null
         }
     }
 
-    pub fn print(&self) {
-        print!("{}\n", &self.root);
+    pub fn print(&self) -> String {
+        self.root.print(0)
     }
 }
 
-pub struct Object {
-    pub map: HashMap<String, Value>,
-    pub depth: usize
-}
-
-impl Object {
-    pub fn new(depth: usize) -> Object {
-        Object {
-            map: HashMap::new(),
-            depth: depth
-        }
-    }
-
-    pub fn add(&mut self, key: String, value: Value) {
-        self.map.insert(key, value);
-    }
-}
-
-impl fmt::Display for Object {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let out_spaces = "  ".repeat(self.depth);
-        let in_spaces = "  ".repeat(self.depth + 1);
-
-        write!(f, "{}{{\n", &out_spaces)?; // beginning of a new object
-        for (k, v) in &self.map {
-            write!(f, "{}\"{}\": {}", &in_spaces, k, v)?;
-        }
-        write!(f, "{}\n}}", &out_spaces)?;
-        Ok(())
-    }
-}
-
+#[derive(Debug)]
 pub enum Value {
+    Null,
     String(String),
-    // Bool(bool),
-    // Integer(i64),
-    // Object(Object),
+    Object(HashMap<String, Value>),
+    Boolean(bool),
+    Number(f64),
 }
 
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Value::String(ref s) => write!(f, "\"{}\"", s),
-            // Value::Bool(ref b) => write!(f, "{}", b),
-            // Value::Integer(ref i) => write!(f, "{}", i),
-            // Value::Object(ref o) => write!(f, "{}", o),
+impl Value {
+    pub fn new(val: &str) -> Self {
+        let cleaned = val.trim();
+        if let Ok(v) = cleaned.parse::<f64>() {
+            return Value::Number(v);
+        } else if let Ok(v) = cleaned.parse::<bool>() {
+            return Value::Boolean(v);
+        } else if cleaned == "null" {
+            return Value::Null;
+        } else {
+            return Value::String(cleaned.trim_matches('"').to_string())
         }
+    }
+
+    fn print(&self, depth: usize) -> String {
+        let out_spaces = "  ".repeat(depth);
+        let in_spaces = "  ".repeat(depth + 1);
+        let mut r = String::new();
+
+        match *self {
+            Value::String(ref s) => r += &format!("\"{}\"", s),
+            // Value::Bool(ref b) => format!("{}", b),
+            // Value::Integer(ref i) => format!("{}", i),
+            Value::Object(ref o) => {
+                r += &format!("{}{{\n", &out_spaces); // beginning of a new object
+                for (k, v) in o.iter() {
+                    r += &format!("{}\"{}\": {},\n", &in_spaces, k, v.print(depth + 1));
+                }
+                r += &format!("{}}}\n", &out_spaces);
+            },
+            Value::Boolean(ref b) => {
+                r += &format!("{}", b);
+            },
+            Value::Number(ref n) => {
+                r += &format!("{}", n);
+            },
+            Value::Null => r.push_str("null"),
+        }
+        r
+    }
+
+    pub fn add(&mut self, key: String, value: Value) -> Result<(), JsonParseError> {
+        match *self {
+            Value::Object(ref mut o) => {
+                o.insert(key, value);
+            },
+            _ => return Err(JsonParseError)
+        }
+        Ok(())
     }
 }

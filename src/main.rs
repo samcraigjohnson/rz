@@ -1,45 +1,73 @@
 use std::io::{self, Read};
+use std::collections::HashMap;
+use std::fmt;
+
 mod json;
-
-// What characters does json have
-// " - deliniates a key or value
-// { - starts an object
-// } - ends an object
-// [ - starts an array
-// ] - ends an array
-// : - ends a key/starts a value
-// 45 - number
-
 
 struct Parser {
     state: ParserState,
+    obj_stack: Vec<json::Value>,
     curr_char: usize,
+    document: json::Document,
 }
 
+#[derive(Debug)]
 enum ParserState {
     Start,
     ParsingKey { key: String },
     ParsingValue { key: String },
 }
 
-impl Parser {
-    fn new() -> Parser {
-        Parser {
-            curr_char: 0,
-            state: ParserState::Start,
+impl fmt::Display for ParserState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            ParserState::Start => write!(f, "Start"),
+            ParserState::ParsingKey { key: _ } => write!(f, "ParsingKey"),
+            ParserState::ParsingValue { key: _ }=> write!(f, "ParsingValue"),
         }
     }
 }
 
+impl Parser {
+    fn new() -> Parser {
+        Parser {
+            curr_char: 0,
+            obj_stack: Vec::new(),
+            state: ParserState::Start,
+            document: json::Document::new(),
+        }
+    }
+}
+
+/// Gobble up the given string starting at start_loc and ending
+/// when we reach the given list of possible character.
+/// We then return the gobbled string and the ending location of the char in the string.
+///
+/// Return None if the end_char is not found
+fn gobble_til(input: &str, start_loc: usize, end_chars: &[char]) -> Option<(String, usize)> {
+    let mut gobbled = String::new();
+    let mut location = start_loc;
+    while let Some(curr_char) = input.chars().nth(location) {
+        if end_chars.contains(&curr_char) {
+            return Some((gobbled, location));
+        } else {
+            gobbled.push(curr_char);
+            location += 1;
+        }
+    }
+    None
+}
+
 // Tokenize input
 // so far only handles double quoted strings as values
-fn parse_json<'a>(input: String) -> json::Document {
+fn parse_json<'a>(input: String) -> Result<json::Document, json::JsonParseError> {
     let mut p = Parser::new();
-    let mut d = json::Document::new();
     {
-        let curr_obj = &mut d.root;
+        // As we traverse through the document we need to keep track of which object we are currently in
         while p.curr_char < input.chars().count() {
             let c = input.chars().nth(p.curr_char).unwrap();
+
+            println!("Current char: ({}, {}), State: {}", c, p.curr_char, p.state);
 
             p.state = match p.state {
                 ParserState::ParsingKey { key } => {
@@ -54,27 +82,23 @@ fn parse_json<'a>(input: String) -> json::Document {
                 }
                 ParserState::ParsingValue { key } => {
                     match c {
-                        ':' => { // Everything past the colon is a value
-                            let mut new_val = String::new();
-                            let mut location = p.curr_char + 1;
+                        ':' => {
+                            // Here is where we need to recurse if we hit a new json object
+                            // If it is not a new object, then it is one of the other values and should
+                            // just be added straight
 
-                            // TODO(samj) - special handling of nested objects here
-                            while let Some(curr_char) = input.chars().nth(location) {
-                                if curr_char == ',' || curr_char == '}' { break; } // Need to handle array here :D
+                            let (val, new_location) = match gobble_til(&input, p.curr_char + 1, &[',', '}']) {
+                                Some(v) => v,
+                                None => return Err(json::JsonParseError),
+                            };
 
-                                new_val.push(curr_char);
-                                location += 1;
-                            }
+                            // handle json parse error here
+                            let curr_obj = p.obj_stack.last_mut().unwrap();
+                            curr_obj.add(key, json::Value::new(&val)).unwrap();
 
-                            // TODO(samj) - strip quotes and spaces
-                            // TODO(samj) - try to convert to int, float, bool
-                            let mut trimmed = new_val.trim();
-                            if trimmed.chars().nth(0).unwrap() == '"' {
-                                trimmed = trimmed.get(1..trimmed.chars().count() - 1).unwrap();
-                            }
-
-                            curr_obj.add(key, json::Value::String(trimmed.to_string()));
-                            p.curr_char = location;
+                            p.curr_char = new_location;
+                            println!("Curr char: {}, Char count: {}", p.curr_char, input.chars().count());
+                            println!("Curr obj: {:?}", curr_obj);
                             p.state = ParserState::Start;
                             continue
                         }
@@ -86,6 +110,21 @@ fn parse_json<'a>(input: String) -> json::Document {
                         '"' => {
                             ParserState::ParsingKey { key: String::new() }
                         }
+                        '{' => {
+                            let new_obj = json::Value::Object(HashMap::new());
+                            p.obj_stack.push(new_obj);
+                            ParserState::Start
+                        }
+                        '}' => {
+                            match p.obj_stack.pop() {
+                                Some(obj) => {
+                                    println!("Changing the roooot!");
+                                    p.document.root = obj;
+                                },
+                                None => return Err(json::JsonParseError)
+                            }
+                            ParserState::Start
+                        },
                         _ => ParserState::Start
                     }
                 }
@@ -93,13 +132,13 @@ fn parse_json<'a>(input: String) -> json::Document {
             p.curr_char += 1; // advance to next  character
         }
     }
-    d
+    Ok(p.document)
 }
 
 fn main() {
     let mut json = String::new();
     io::stdin().read_to_string(&mut json)
         .expect("unable to read from stdin");
-    let d = parse_json(json);
-    d.print();
+    let d = parse_json(json).expect("unable to parse json!");
+    print!("{}", d.print());
 }
